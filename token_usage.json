@@ -1,0 +1,50 @@
+{
+  "SceneBatch": {
+    "input_tokens": 41651,
+    "output_tokens": 2138,
+    "total_calls": 11,
+    "model": "nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF"
+  },
+  "EntityBatch": {
+    "input_tokens": 43202,
+    "output_tokens": 5496,
+    "total_calls": 11,
+    "model": "nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF"
+  },
+  "SceneEventBatch": {
+    "input_tokens": 42091,
+    "output_tokens": 12248,
+    "total_calls": 11,
+    "model": "nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF"
+  },
+  "ClassificationResult": {
+    "input_tokens": 107103,
+    "output_tokens": 18556,
+    "total_calls": 218,
+    "model": "nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF"
+  },
+  "ExtractionBatch": {
+    "input_tokens": 54868,
+    "output_tokens": 24246,
+    "total_calls": 47,
+    "model": "nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF"
+  },
+  "MergeDecision": {
+    "input_tokens": 1039,
+    "output_tokens": 598,
+    "total_calls": 6,
+    "model": "nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF"
+  },
+  "SynthesizedProfile": {
+    "input_tokens": 3609,
+    "output_tokens": 2186,
+    "total_calls": 15,
+    "model": "nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF"
+  },
+  "SynthesizedEpisode": {
+    "input_tokens": 1838,
+    "output_tokens": 1700,
+    "total_calls": 10,
+    "model": "nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF"
+  }
+}

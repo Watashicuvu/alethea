@@ -1,0 +1,29 @@
+[project]
+name = "alethea"
+version = "0.1.0"
+description = "like chat with LLM, but with game memory"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic",
+    "numpy", 
+    "sentence-transformers", 
+    "openai",
+    "langchain",
+    "langchain-openai",
+    "qdrant-client",
+    "neo4j",
+    "llama-index-core",
+    "llama-index-llms-openai",
+    "llama-index-embeddings-openai",
+    "llama-index-llms-openai-like",
+    "llama-index-embeddings-openai-like",
+    "rapidfuzz"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
