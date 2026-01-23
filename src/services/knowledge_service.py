@@ -1,4 +1,5 @@
 import logging
+import numpy as np
 from typing import List, Dict, Optional, Tuple
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -121,6 +122,76 @@ class WorldKnowledgeService:
             })
         return mechanics
 
+    def find_best_verb(self, query_vector: List[float], top_k: int = 3) -> Optional[Dict]:
+        """
+        Ищет наиболее подходящий Глагол (Verb) в онтологии.
+        Возвращает payload с готовыми статами.
+        """
+        hits = self.qdrant.search(
+            collection_name="ontology_static",
+            query_vector=query_vector,
+            query_filter=models.Filter(
+                must=[models.FieldCondition(key="doc_type", match=models.MatchValue(value="verb"))]
+            ),
+            limit=top_k
+        )
+        if not hits:
+            return None
+            
+        # Возвращаем лучший матч (или можно добавить стохастику здесь)
+        best = hits[0]
+        return {
+            "id": best.id,
+            "name": best.payload.get("name"),
+            "stats": best.payload.get("stats", {}), # Material, Vitality, etc.
+            "score": best.score
+        }
+
+    def apply_interaction_physics(self, 
+                                  target_entity: Dict, 
+                                  verb_data: Dict, 
+                                  intent_multiplier: float) -> Dict:
+        """
+        Главная физика мира.
+        Применяет статы Глагола к статам Сущности с учетом Намерения.
+        
+        target_entity: Словарь сущности (snapshot)
+        verb_data: Payload глагола (из find_best_verb)
+        intent_multiplier: 
+             +1.0 (Cooperation/Buff)
+             -1.0 (Conflict/Damage)
+             0.5 (Learning/Modification)
+        """
+        current_stats = target_entity['stats'].copy()
+        effect_stats = verb_data['stats'] # Например: {"vitality": 0.8, "social": 0.1}
+        
+        updated_stats = {}
+        log_changes = []
+
+        # Константа "Силы воздействия" (чтобы одно событие не меняло мир слишком резко)
+        IMPACT_FACTOR = 0.15 
+
+        for axis in ["material", "vitality", "social", "cognitive"]:
+            curr_val = current_stats.get(axis, 0.0)
+            
+            # Сила эффекта по этой оси (от 0 до 1)
+            effect_val = effect_stats.get(axis, 0.0)
+            
+            # Формула: New = Old + (Effect * Impact * Sign)
+            delta = effect_val * IMPACT_FACTOR * intent_multiplier
+            
+            new_val = curr_val + delta
+            
+            # Clamping (0.0 - 1.0)
+            new_val = max(0.0, min(1.0, new_val))
+            
+            updated_stats[axis] = round(new_val, 3)
+            
+            if abs(delta) > 0.01:
+                log_changes.append(f"{axis[:3].upper()}{'+' if delta>0 else ''}{delta:.2f}")
+
+        return updated_stats, ", ".join(log_changes)
+
     def calculate_interaction_outcome(self, 
                                       source_vec: List[float], 
                                       target_vec: List[float]) -> float:
@@ -130,7 +201,6 @@ class WorldKnowledgeService:
         If score < 0.3 -> Repulsion (Conflict/Bounce).
         """
         # Manual cosine similarity if not using numpy
-        import numpy as np
         a = np.array(source_vec)
         b = np.array(target_vec)
         return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
@@ -173,3 +243,86 @@ class WorldKnowledgeService:
             payload={"stats": new_stats},
             points=[entity_id]
         )
+
+    # =========================================================================
+    # 4. ENTROPY & CHAOS MECHANICS
+    # =========================================================================
+
+    def inject_noise(self, vector: List[float], intensity: float = 0.1) -> List[float]:
+        """
+        Механизм "Пинка". Добавляет Гауссовский шум к вектору сущности.
+        Это смещает фокус внимания NPC в случайную сторону.
+        """
+        vec_np = np.array(vector)
+        noise = np.random.normal(0, 1, len(vec_np))
+        
+        # Нормализуем шум, чтобы он был сопоставим с вектором
+        noise_norm = noise / np.linalg.norm(noise)
+        
+        # Смешиваем: V_new = (1 - alpha) * V_old + alpha * Noise
+        # Где alpha = intensity
+        perturbed_vec = (1 - intensity) * vec_np + intensity * noise_norm
+        
+        # Ре-нормализуем, чтобы косинусное расстояние работало корректно
+        return (perturbed_vec / np.linalg.norm(perturbed_vec)).tolist()
+    
+    def get_orthogonal_query(self, current_vector: List[float], intensity: float = 0.5) -> List[float]:
+        """
+        Генерирует вектор запроса, который 'перпендикулярен' текущему состоянию.
+        Помогает найти события, которые НЕ связаны с текущей повесткой.
+        """
+        v = np.array(current_vector)
+        
+        # 1. Генерируем случайный вектор намерений
+        random_vec = np.random.normal(0, 1, len(v))
+        
+        # 2. Проецируем random_vec на v
+        # proj = (r . v) / (v . v) * v
+        v_norm_sq = np.dot(v, v)
+        if v_norm_sq == 0: 
+            return random_vec.tolist()
+            
+        proj = (np.dot(random_vec, v) / v_norm_sq) * v
+        
+        # 3. Вычитаем проекцию (получаем ортогональную компоненту)
+        # rejection = r - proj
+        orthogonal_vec = random_vec - proj
+        
+        # 4. Смешиваем с исходным вектором (или возвращаем чистый ортогонал)
+        # intensity 1.0 = ищем что-то вообще перпендикулярное (Смена темы)
+        # intensity 0.1 = небольшое отклонение
+        
+        # Нормализуем оба
+        v_norm = v / np.linalg.norm(v)
+        o_norm = orthogonal_vec / np.linalg.norm(orthogonal_vec)
+        
+        final_query = (1 - intensity) * v_norm + intensity * o_norm
+        return final_query.tolist()
+
+    def select_outcome_stochastic(self, candidates: List[Dict], temperature: float = 0.1) -> Dict:
+        """
+        Выбирает действие не строго по Score, а вероятностно (Softmax).
+        
+        Candidates: список dict c ключом 'score' (cosine similarity).
+        Temperature:
+           - 0.01 -> Почти всегда выбирается Top-1 (Строгая логика)
+           - 1.0  -> Выбирается случайно с весом (Хаос)
+           - 5.0  -> Полный рандом (Броуновское движение)
+        """
+        if not candidates:
+            return None
+            
+        scores = np.array([c['score'] for c in candidates])
+        
+        # Softmax с температурой
+        # exp(score / temp) / sum(...)
+        try:
+            exp_scores = np.exp(scores / temperature)
+            probabilities = exp_scores / np.sum(exp_scores)
+        except RuntimeWarning:
+            # Если scores слишком большие или temp слишком маленький
+            return candidates[0]
+
+        # Выбор взвешенным рандомом
+        chosen_index = np.random.choice(len(candidates), p=probabilities)
+        return candidates[chosen_index]
