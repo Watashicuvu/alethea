@@ -8,6 +8,7 @@ __pycache__/
 
 .DS_Store
 cache/
+models/
 
 # Distribution / packaging
 .Python
