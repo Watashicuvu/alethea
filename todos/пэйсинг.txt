@@ -1,0 +1,157 @@
+Вы абсолютно правы. У вас **уже есть все необходимые модели** для реализации системы, где прокачка зависит от драматургии (Pacing), а не от количества убитых кабанов.
+
+В НРИ (настольных ролевых играх) это называется **Milestone Leveling**. В вашей архитектуре это реализуется через связку `PacingState` (из `ontology_verbs.py`) и `ChronicleEvent` (из `ontology_chronicle.py`).
+
+Вот как это реализовать, используя **Цикл Напряжения** как триггер для мутаций.
+
+---
+
+### 1. Философия: "Рост происходит в тишине"
+
+В бою (Climax) персонаж действует на адреналине. Он не "учится" в этот момент, он выживает.
+Осмысление опыта и физическая адаптация (Level Up) происходят в фазе **Recovery** (Отдых / Рефлексия).
+
+**Алгоритм:**
+
+1. В фазах `OPENER`, `LINK`, `CLIMAX` мы только **накапливаем "Стресс"** (потенциал изменений) в компоненте навыка.
+2. В фазе `RECOVERY` (или `FINISHER`) движок конвертирует накопленный Стресс в **Мутацию** (Улучшение вектора или получение нового аффорданса).
+
+---
+
+### 2. Реализация: `ProgressionSystem`
+
+Нам не нужны новые атомы. Нам нужна система, которая слушает `ChronicleEvent`.
+
+```python
+# src/systems/progression_system.py
+
+from src.models.ecs.ontology_verbs import PacingState, FlowPhase
+from src.models.ecs.ontology_schemas import WorldEntity, ComponentInstance
+
+def process_narrative_rewards(entity: WorldEntity, event_pacing: PacingState, active_skills: List[str]):
+    """
+    Вызывается в конце сцены или события.
+    """
+    
+    # 1. ФИЛЬТР: Награждаем только если это значимая веха
+    # Если это просто проходная сцена (LINK) с низким напряжением, опыт минимален.
+    if event_pacing.tension_level < 0.3 and event_pacing.phase != FlowPhase.FINISHER:
+        return 
+
+    # 2. МНОЖИТЕЛЬ ДРАМЫ (Adrenaline Multiplier)
+    # Чем выше ставки (Climax), тем сильнее "впечатывается" опыт.
+    # tension_level (0.0 - 1.0) берем из PacingState
+    drama_multiplier = 1.0 + (event_pacing.tension_level * 2.0) 
+    
+    # 3. РАСПРЕДЕЛЕНИЕ ПО НАВЫКАМ
+    for skill_id in active_skills:
+        skill_comp = entity.get_component(skill_id)
+        if not skill_comp: 
+            continue
+            
+        # Логика:
+        # Если была битва насмерть (CLIMAX + High Tension) -> Возможна МУТАЦИЯ (новый аффорданс)
+        # Если было долгое путешествие (LINK) -> Просто рост статов (Refinement)
+        
+        if event_pacing.phase == FlowPhase.RECOVERY or event_pacing.is_scene_end:
+            _apply_milestone_growth(skill_comp, drama_multiplier)
+
+def _apply_milestone_growth(skill: ComponentInstance, multiplier: float):
+    # Увеличиваем вектор (условный XP)
+    base_growth = 0.05 # 5% прирост
+    growth_factor = base_growth * multiplier
+    
+    # "Раздуваем" вектор навыка
+    skill.vector_modifier = skill.vector_modifier.merge(
+        skill.vector_modifier, 
+        weight=growth_factor
+    )
+    
+    # 4. ЭВОЛЮЦИЯ (Мутация)
+    # Если напряжение было запредельным (> 0.8), навык может эволюционировать
+    # Это ваша механика EvolutionRule, привязанная к pacing!
+    if multiplier > 2.5: # Tension > 0.75
+        # Добавляем новый тег/аффорданс
+        # Было: "act_mat_impact" (просто удар)
+        # Стало: "act_mat_impact" + "act_mat_burn" (огненный удар)
+        if "act_mat_burn" not in skill.data.get("added_affordances", []):
+            skill.data.setdefault("added_affordances", []).append("act_mat_burn")
+            # Log: "Under extreme stress, Gandalf unlocked Pyromancy!"
+
+```
+
+---
+
+### 3. Где это в ваших данных?
+
+У вас уже есть поля для этого. Смотрим в `ontology_verbs.py` и `ontology_schemas.py`:
+
+1. 
+**`PacingState`**: 
+
+
+* `tension_level`: Ваш главный множитель опыта.
+* `phase`: Триггер (ждем `RECOVERY` или `FINISHER`).
+* `momentum_delta`: Бонус за "Красивый ход" (Style points).
+
+
+2. 
+**`EvolutionRule`**: 
+
+
+* У вас есть `condition_axis` в правилах эволюции.
+* **Идея:** Добавьте в `condition_axis` виртуальную ось `"pacing_stress"`.
+
+
+
+### 4. Обновленный пример Атома Навыка с Pacing-правилом
+
+Дополним наш универсальный атом `sys_skill` правилом эволюции, которое реагирует на Драму.
+
+```python
+# src/data/templates_atoms.py
+
+skill_atom = ComponentDefinition(
+    id="sys_skill",
+    name="Learned Skill",
+    # ...
+    evolution_rules=[
+        # ПРАВИЛО 1: Обычная практика (Гринд)
+        # Если просто много пользовался (usage_xp), растет точность
+        EvolutionRule(
+            condition_axis="usage_xp",
+            operator="gt",
+            threshold=100.0,
+            effect_delta={"val_accuracy": 0.1}
+        ),
+        
+        # ПРАВИЛО 2: Драматический прорыв (Pacing)
+        # Если навык использовался в контексте "Смертельной опасности" (High Tension),
+        # он мутирует мгновенно, минуя XP.
+        EvolutionRule(
+            condition_axis="context_tension", # <-- Это значение мы прокидываем из PacingState
+            operator="gt",
+            threshold=0.9, # Только в кульминации
+            effect_delta={
+                "vector_multiplier": 1.5, # Резкий скачок силы
+                "new_affordance_unlock": 1.0 # Триггер добавления нового тега
+            }
+        )
+    ]
+)
+
+```
+
+### Резюме
+
+Вам не нужно менять код парсинга или хранения. Вам нужно просто настроить **ActionResolver** (Систему, обрабатывающую последствия), чтобы она:
+
+1. Смотрела не только на результат действия (Попал/Не попал).
+2. Смотрела на **Контекст Пейсинга** (`ChronicleEvent.pacing`). 
+
+
+3. Если сцена закончилась (`is_scene_end=True`), раздавала награды пропорционально пережитому ужасу/триумфу (`tension_level`).
+
+
+
+Это создаст очень "кинематографичную" прокачку: герои растут не когда бьют крыс в подвале, а когда выживают в битве с Балрогом.

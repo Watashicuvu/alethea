@@ -13,6 +13,8 @@ from llama_index.core import Document
 from llama_index.core.schema import BaseNode
 from llama_index.core.schema import MetadataMode
 
+from src.infrastructure.llama_adapter import SmartLlamaLLM
+from src.infrastructure.smart_client import SmartOpenAI
 from src.ingestion.scene_splitter import SemanticSceneSplitter
 from src.ingestion.synthesizer import EntitySynthesizer
 from src.config import config, PipelineOptions
@@ -31,9 +33,21 @@ class GraphBuilder:
         Инициализация GraphBuilder с поддержкой опций пайплайна.
         """
         # 1. Models
-        self.llm = OpenAILike(model=config.llm.model_name, 
-                          api_base=config.llm.base_url,
-                          temperature=0.1)
+        # self.llm = OpenAILike(model=config.llm.model_name, 
+        #                   api_base=config.llm.base_url,
+        #                   temperature=0.1)
+        # 1. ЯДРО: Smart Client (для прямого доступа и Structured Outputs)
+        self.smart_client = SmartOpenAI(
+            api_key=config.llm.api_key,
+            base_url=config.llm.base_url,
+            cache_dir="cache/global_llm"
+        )
+        
+        # 2. ОБЕРТКА: LlamaIndex LLM (для индексов и ретриверов)
+        self.llm = SmartLlamaLLM(
+            model_name=config.llm.model_name,
+            smart_client=self.smart_client
+        )
         self.embedder = OpenAILikeEmbedding(
                         model_name=config.vector.model_name,
                         api_base=config.vector.base_url,

@@ -7,9 +7,11 @@ from llama_index.core import PromptTemplate
 from rapidfuzz import fuzz 
 from src.config import config
 from src.models.ecs.taxonomy import SemanticTag
+from src.models.judge import IdentityVerdict
 from src.models.templates_events import EventArchetype
 from src.custom_program import LocalStructuredProgram
 from src.ingestion.graph_schemas import MoleculeType
+from src.debug.telemetry import telemetry, EventType
 
 # === МОДЕЛИ СИНТЕЗА ===
 
@@ -152,6 +154,9 @@ class EntitySynthesizer:
         """Trusted method: Add observation to a specific UID."""
         if not observation: return
         self._dossiers[uid].append(observation)
+
+        # можно более интеллектуально это добавлять
+        telemetry.emit(EventType.STATE_SNAP, f"Fact added for {uid}", {"obs": observation})
         
         if metadata:
             name = metadata.get('name')
@@ -212,6 +217,14 @@ class EntitySynthesizer:
         """
         Главный метод: Местоимения -> Ведра -> Досье -> Консолидация.
         """
+        telemetry.emit(
+            EventType.STEP_INFO, 
+            "Start Entity Resolution", 
+            {
+                "buckets_count": len(self._buckets),
+                "ambiguous_buffer": len(self._ambiguous_buffer)
+            }
+        )
         print(f"🧹 Finalizing Entities: {len(self._ambiguous_buffer)} ambiguous refs, {len(self._buckets)} buckets.")
         
         # 1. Resolve Pronouns
@@ -222,6 +235,21 @@ class EntitySynthesizer:
         
         # 3. Merge Duplicates (UID -> UID)
         self.consolidate_dossiers()
+
+        # После слияния
+        telemetry.emit(
+            EventType.STATE_SNAP,
+            "Resolution Complete",
+            data={
+                "final_entities_count": len(self._dossiers),
+                "merged_redirects": len(self._redirect_map),
+                "top_entities": [
+                    # Выводим топ-5 самых "жирных" досье для проверки
+                    (k, len(v), self._metadata.get(k, {}).get('name')) 
+                    for k, v in sorted(self._dossiers.items(), key=lambda x: len(x[1]), reverse=True)[:15]
+                ]
+            }
+        )
 
     def _resolve_ambiguous_buffer(self):
         """
@@ -399,9 +427,13 @@ class EntitySynthesizer:
                 # 1. Fuzzy Name
                 if fuzz.ratio(main_name, cand_name) > 85:
                     should_merge = True
+                    print(f'SYN: {main_name}, {cand_name} has merged!')
                 elif cand_name in main_name and len(cand_name) > 4:
                     # "Dark Hall" in "The Dark Hall"
                     should_merge = True
+                    print(f'SYN: {main_name}, {cand_name} has merged!')
+                else:
+                    print(f'SYN: {main_name}, {cand_name} has NOT merged!')
                     
                 if should_merge:
                     # Слияние наблюдений

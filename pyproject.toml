@@ -6,8 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "pydantic",
-    "numpy", 
-    "sentence-transformers", 
+    "numpy",
     "openai",
     "langchain",
     "langchain-openai",
@@ -17,8 +16,10 @@ dependencies = [
     "llama-index-llms-openai",
     "llama-index-embeddings-openai",
     "llama-index-llms-openai-like",
+    "llama-index-readers-file",
     "llama-index-embeddings-openai-like",
-    "rapidfuzz"
+    "rapidfuzz",
+    "streamlit>=1.53.1",
 ]
 
 [build-system]

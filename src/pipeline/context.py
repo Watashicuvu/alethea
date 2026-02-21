@@ -7,6 +7,8 @@ from src.database.neo4j_client import Neo4jClient
 from qdrant_client import QdrantClient
 from llama_index.llms.openai_like import OpenAILike
 from llama_index.embeddings.openai_like import OpenAILikeEmbedding
+from src.infrastructure.llama_adapter import SmartLlamaLLM
+from src.infrastructure.smart_client import SmartOpenAI
 from transformers import AutoTokenizer
 
 # Репозитории
@@ -36,12 +38,25 @@ class PipelineContext:
         self.options = options
         
         # 1. Инициализация моделей
-        self.llm = OpenAILike(
-            model=config.llm.model_name,
+        # self.llm = OpenAILike(
+        #     model=config.llm.model_name,
+        #     api_key=config.llm.api_key,
+        #     api_base=config.llm.base_url,
+        #     temperature=0.1
+        # )
+        # 1. ЯДРО: Smart Client (для прямого доступа и Structured Outputs)
+        self.smart_client = SmartOpenAI(
             api_key=config.llm.api_key,
-            api_base=config.llm.base_url,
-            temperature=0.1
+            base_url=config.llm.base_url,
+            cache_dir="cache/global_llm"
         )
+        
+        # 2. ОБЕРТКА: LlamaIndex LLM (для индексов и ретриверов)
+        self.llm = SmartLlamaLLM(
+            model_name=config.llm.model_name,
+            smart_client=self.smart_client
+        )
+        
         self.embedder = OpenAILikeEmbedding(
             model_name=config.vector.model_name,
             api_base=config.vector.base_url,

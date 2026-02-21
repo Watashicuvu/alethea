@@ -1,6 +1,25 @@
+import os
 import logging
 import sys
 from typing import Any, List, Dict
+
+
+SELF_HOSTED_LLM = os.getenv("SELF_HOSTED_LLM", "false").lower() == "true"
+SELF_HOSTED_EMBEDDER = os.getenv("SELF_HOSTED_EMBEDDER", "false").lower() == "true"
+
+if SELF_HOSTED_LLM:
+    LLM_URL = os.getenv("LLM_BASE_URL")
+else:
+    LLM_URL = os.getenv("EXTERNAL_LLM_URL")
+    # Проверка на наличие токена для внешнего API
+    if not os.getenv("API_TOKEN"):
+        raise ValueError("API_TOKEN required for external LLM")
+
+# Аналогично для эмбеддера
+if SELF_HOSTED_EMBEDDER:
+    EMB_URL = os.getenv("EMB_BASE_URL")
+else:
+    EMB_URL = os.getenv("EXTERNAL_EMB_URL")
 
 # Настраиваем логирование, чтобы видеть прогресс этапов
 logging.basicConfig(

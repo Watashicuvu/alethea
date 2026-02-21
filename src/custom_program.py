@@ -1,7 +1,9 @@
 import os
 import hashlib
 import json
+import time
 from typing import Type, Any, Dict, Optional, TypeVar, List
+import uuid
 from pydantic import BaseModel, create_model, Field
 from llama_index.core.types import BasePydanticProgram
 from llama_index.core.prompts import BasePromptTemplate
@@ -9,6 +11,7 @@ from llama_index.core.llms import LLM
 from openai import OpenAI
 from openai.types.chat.chat_completion_user_message_param import ChatCompletionUserMessageParam
 from openai.types.chat.chat_completion_system_message_param import ChatCompletionSystemMessageParam
+from src.debug.telemetry import telemetry, EventType
 
 Model = TypeVar("Model", bound=BaseModel)
 
@@ -133,6 +136,21 @@ class LocalStructuredProgram(BasePydanticProgram[Model]):
         user_prompt_str = self._prompt.format(**kwargs)
         schema_name = self._output_cls.__name__
 
+        # Генерируем ID для связки запроса и ответа
+        request_id = str(uuid.uuid4())[:8]
+
+        # 1. 📡 TELEMETRY: REQUEST
+        telemetry.emit(
+            EventType.LLM_REQ,
+            title=f"Generating {schema_name}",
+            context_id=request_id,
+            data={
+                "prompt": user_prompt_str,
+                "model": self._model_name,
+                "input_vars": kwargs
+            }
+        )
+
         # === CACHE HIT LOGIC ===
         if self._cache_dir:
             cache_path = self._get_cache_path(user_prompt_str)
@@ -153,6 +171,7 @@ class LocalStructuredProgram(BasePydanticProgram[Model]):
 
         try:
             # 1. Основной вызов (Main Call)
+            start_time = time.time()
             completion = self._client.chat.completions.parse(
                 model=self._model_name,
                 messages=messages,
@@ -166,7 +185,22 @@ class LocalStructuredProgram(BasePydanticProgram[Model]):
                 self._update_usage(completion.usage, schema_name)
             # ------------------------
 
+            duration = time.time() - start_time
             current_obj = completion.choices[0].message.parsed
+
+            # 2. 📡 TELEMETRY: RESPONSE (Success)
+            telemetry.emit(
+                EventType.LLM_RES,
+                title=f"Received {schema_name} ({duration:.2f}s)",
+                context_id=request_id,
+                data={
+                    "output": current_obj.model_dump(),
+                    "tokens": {
+                        "input": completion.usage.prompt_tokens,
+                        "output": completion.usage.completion_tokens
+                    }
+                }
+            )
             
             # 2. Цикл исправлений (Repair Loop)
             for attempt in range(self._max_retries):
@@ -229,5 +263,12 @@ class LocalStructuredProgram(BasePydanticProgram[Model]):
         except Exception as e:
             if self._verbose:
                 print(f"❌ Error: {e}")
+            # 3. 📡 TELEMETRY: ERROR
+            telemetry.emit(
+                EventType.ERROR,
+                title=f"Error in {schema_name}",
+                context_id=request_id,
+                data={"error": str(e)}
+            )
             raise e
         
