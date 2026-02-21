@@ -46,7 +46,7 @@ services:
       - models_volume:/models
     environment:
       - MODEL_PATH=/models/glm-4-flash.gguf
-      - MODEL_URL=https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF/resolve/main/GLM-4.7-Flash-UD-Q4_K_XL.gguf
+      - MODEL_URL=https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF/resolve/main/GLM-4.7-Flash-Q2_K_L.gguf
       - GPU_LAYERS=${GPU_LAYERS:-99}
     command: >
       --port 8000
@@ -60,7 +60,7 @@ services:
       --cache-type-k q8_0 --cache-type-v q8_0
       --flash-attn on
       --batch-size 4096 --ubatch-size 1024
-      --ctx-size 131072
+      --ctx-size 13072
     deploy:
       resources:
         reservations:
